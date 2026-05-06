@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EquityVest">
+<title>EquityVest</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:#000;font-family:-apple-system,'SF Pro Text','SF Pro Display','Helvetica Neue',sans-serif;color:#fff;overflow:hidden}
+::-webkit-scrollbar{display:none}
+input::placeholder,textarea::placeholder{color:#48484A}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const{useState,useEffect,useRef}=React;
+const SK="ev-v7";
+const C={blue:"#007AFF",green:"#34C759",red:"#FF3B30",orange:"#FF9500",yellow:"#FFCC00",gray:"#8E8E93",g2:"#636366",g3:"#48484A",g4:"#3A3A3C",g5:"#2C2C2E",g6:"#1C1C1E",bg:"#000",w:"#FFF",sep:"#38383A"};
+const SC={new:C.blue,hot:C.red,warm:C.orange,called:C.yellow,qualified:C.green,dead:C.gray};
+
+function App(){
+  const[s,setS]=useState(()=>{try{const d=JSON.parse(localStorage.getItem(SK));return d?.s||{callWH:"",smsWH:"",phone:"",ok:false}}catch(e){return{callWH:"",smsWH:"",phone:"",ok:false}}});
+  const[contacts,setContacts]=useState(()=>{try{const d=JSON.parse(localStorage.getItem(SK));return d?.c||[]}catch(e){return[]}});
+  const[log,setLog]=useState(()=>{try{const d=JSON.parse(localStorage.getItem(SK));return d?.l||[]}catch(e){return[]}});
+  const[q,setQ]=useState("");
+  const[tab,setTab]=useState("messages");
+  const[chat,setChat]=useState(null);
+  const[msg,setMsg]=useState("");
+  const[sending,setSending]=useState(false);
+  const[dial,setDial]=useState("");
+  const[calling,setCalling]=useState(null);
+  const[callSt,setCallSt]=useState("");
+  const[modal,setModal]=useState(null);
+  const[menuId,setMenuId]=useState(null);
+  const[impTxt,setImpTxt]=useState("");
+  const[nc,setNc]=useState({name:"",phone:"",city:"",src:""});
+  const[qrOpen,setQrOpen]=useState(false);
+  const[expTx,setExpTx]=useState(null);
+  const[compose,setCompose]=useState(false);
+  const[toQ,setToQ]=useState("");
+  const[callTimer,setCallTimer]=useState(0);
+  const endRef=useRef(null);
+  const inRef=useRef(null);
+  const timerRef=useRef(null);
+
+  const save=(ns,nc2,nl)=>{try{localStorage.setItem(SK,JSON.stringify({s:ns||s,c:nc2||contacts,l:nl||log}))}catch(e){}};
+
+  const scroll=()=>setTimeout(()=>endRef.current?.scrollIntoView({behavior:"smooth"}),60);
+  const ini=n=>{if(!n)return"?";const p=n.split(" ");return p.length>1?(p[0][0]+p[p.length-1][0]).toUpperCase():n.slice(0,2).toUpperCase()};
+  const fmt=iso=>{if(!iso)return"";const d=new Date(iso),n=new Date();if(d.toDateString()===n.toDateString())return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});const diff=(n-d)/86400000;if(diff<7)return d.toLocaleDateString("en-US",{weekday:"short"});return d.toLocaleDateString("en-US",{month:"numeric",day:"numeric",year:"2-digit"})};
+  const fmtDate=iso=>{if(!iso)return"";const d=new Date(iso),n=new Date();if(d.toDateString()===n.toDateString())return"Today "+d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});return d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})+" "+d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})};
+  const fmtTimer=s=>{const m=Math.floor(s/60);const sec=s%60;return m+":"+(sec<10?"0":"")+sec};
+
+  const doCall=async(contact)=>{
+    if(!s.callWH){setModal("settings");return}
+    setCalling(contact);setCallSt("calling");setCallTimer(0);
+    if(timerRef.current)clearInterval(timerRef.current);
+    try{
+      const r=await fetch(s.callWH,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({agent_phone:contact.phone,agent_name:contact.name,opener_phone:s.phone,ts:new Date().toISOString()})});
+      if(r.ok){
+        setCallSt("ringing");
+        timerRef.current=setInterval(()=>setCallTimer(t=>t+1),1000);
+        const nl=[{id:Date.now()+"",name:contact.name,phone:contact.phone,time:new Date().toISOString()},...log];
+        setLog(nl);
+        const uc=contacts.map(c=>c.id===contact.id?{...c,lastCalled:new Date().toISOString(),status:c.status==="new"?"called":c.status}:c);
+        setContacts(uc);save(s,uc,nl);
+      }else{setCallSt("failed")}
+    }catch(e){setCallSt("failed")}
+  };
+
+  const endCall=()=>{if(timerRef.current)clearInterval(timerRef.current);setCalling(null);setCallSt("");setCallTimer(0)};
+
+  const doSend=async()=>{
+    if(!msg.trim()||!chat||sending)return;
+    setSending(true);
+    const m={id:Date.now()+"",text:msg.trim(),dir:"out",time:new Date().toISOString()};
+    const uc=contacts.map(c=>c.id===chat.id?{...c,messages:[...(c.messages||[]),m]}:c);
+    setContacts(uc);setChat({...chat,messages:[...(chat.messages||[]),m]});const t=msg.trim();setMsg("");save(s,uc);scroll();
+    if(s.smsWH){try{await fetch(s.smsWH,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:chat.phone,text:t,agent_name:chat.name})})}catch(e){}}
+    setSending(false);
+  };
+
+  const addC=()=>{if(!nc.name||!nc.phone)return;const c2=[...contacts,{...nc,id:Date.now()+"",status:"new",lastCalled:null,messages:[],source:nc.src}];setContacts(c2);setNc({name:"",phone:"",city:"",src:""});setModal(null);save(s,c2)};
+  const doImport=()=>{const lines=impTxt.trim().split("\n");const n2=lines.map(l=>{const p=l.split(",").map(x=>x.trim());return p.length>=2?{id:(Date.now()+Math.random())+"",name:p[0],phone:p[1],city:p[2]||"",source:p[3]||"Import",status:"new",lastCalled:null,messages:[]}:null}).filter(Boolean);const c2=[...contacts,...n2];setContacts(c2);setImpTxt("");setModal(null);save(s,c2)};
+  const setSt=(id,st)=>{const c2=contacts.map(c=>c.id===id?{...c,status:st}:c);setContacts(c2);save(s,c2);setMenuId(null)};
+  const delC=id=>{setContacts(c=>c.filter(x=>x.id!==id));setMenuId(null)};
+  const openChat=c=>{setChat(c);setCompose(false);setExpTx(null);scroll()};
+
+  const QR=["Do you have a fixer for me?","What's the address?","Is it on or off market?","What's the asking price?","What condition is it in?","Let me get my partner to call you","?"];
+
+  const convos=contacts.filter(c=>c.messages?.length>0).sort((a,b)=>(b.messages[b.messages.length-1]?.time||"").localeCompare(a.messages[a.messages.length-1]?.time||""));
+  const filt=contacts.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())||c.phone.includes(q)||(c.city||"").toLowerCase().includes(q.toLowerCase()));
+  const grp={};filt.forEach(c=>{const l=c.name[0]?.toUpperCase()||"#";if(!grp[l])grp[l]=[];grp[l].push(c)});
+
+  // ===== CALL SCREEN =====
+  if(calling)return(
+    <div style={{position:"fixed",inset:0,zIndex:999,background:"linear-gradient(180deg,#1a3a5c 0%,#0a1628 50%,#2a1a0a 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"space-between",padding:"80px 0 50px",color:C.w}}>
+      <div style={{textAlign:"center",width:"100%",padding:"0 20px"}}>
+        <div style={{fontSize:14,color:C.gray,marginBottom:8}}>{callSt==="calling"?"Calling...":callSt==="ringing"?fmtTimer(callTimer):"Call Failed"}</div>
+        <div style={{fontSize:32,fontWeight:500,letterSpacing:-.3}}>{calling.name}</div>
+      </div>
+      <div style={{flex:1}}/>
+      {/* 3x2 button grid like real iPhone */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,90px)",gap:20,marginBottom:30}}>
+        {[
+          {icon:"🔊",label:"Audio",bg:"rgba(255,255,255,0.12)"},
+          {icon:"📹",label:"FaceTime",bg:"rgba(255,255,255,0.12)"},
+          {icon:"🔇",label:"Mute",bg:"rgba(255,255,255,0.12)"},
+          {icon:"•••",label:"More",bg:"rgba(255,255,255,0.12)"},
+          {icon:"📞",label:"End",bg:C.red,action:endCall,isEnd:true},
+          {icon:"⌗",label:"Keypad",bg:"rgba(255,255,255,0.12)"},
+        ].map((b,i)=>(
+          <div key={i} style={{textAlign:"center"}}>
+            <button onClick={b.action||(()=>{})} style={{width:72,height:72,borderRadius:36,background:b.bg,border:"none",fontSize:b.isEnd?28:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:C.w,transform:b.isEnd?"rotate(135deg)":"none"}}>
+              {b.icon}
+            </button>
+            <div style={{fontSize:12,color:C.w,marginTop:6,opacity:.8}}>{b.label}</div>
+          </div>
+        ))}
+      </div>
+      {callSt==="ringing"&&<div style={{fontSize:13,color:C.green,animation:"pulse 2s infinite",textAlign:"center",padding:"0 40px",marginBottom:20}}>Your iPhone will ring when they pick up</div>}
+    </div>
+  );
+
+  // ===== CHAT VIEW =====
+  if(chat)return(
+    <div style={{position:"fixed",inset:0,background:C.bg,color:C.w,display:"flex",flexDirection:"column",zIndex:100}}>
+      <div style={{padding:"6px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"0.5px solid "+C.sep,background:"rgba(0,0,0,.85)",backdropFilter:"blur(20px)",minHeight:44,flexShrink:0}}>
+        <button onClick={()=>setChat(null)} style={{background:"none",border:"none",color:C.blue,fontSize:17,cursor:"pointer",padding:"4px 8px",display:"flex",alignItems:"center"}}><span style={{fontSize:24,fontWeight:300,marginRight:2}}>‹</span></button>
+        <div style={{position:"absolute",left:"50%",transform:"translateX(-50%)",textAlign:"center"}}><div style={{fontSize:16,fontWeight:600}}>{chat.name}</div></div>
+        <div style={{display:"flex",gap:16}}>
+          <button onClick={()=>doCall(chat)} style={{background:"none",border:"none",color:C.green,fontSize:18,cursor:"pointer"}}>📞</button>
+          <button style={{background:"none",border:"none",color:C.blue,fontSize:16,cursor:"pointer"}}>ⓘ</button>
+        </div>
+      </div>
+      <div style={{textAlign:"center",padding:"14px 0 2px",flexShrink:0}}>
+        <div style={{width:56,height:56,borderRadius:28,background:SC[chat.status]||C.g2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:500,color:C.w,margin:"0 auto 4px"}}>{ini(chat.name)}</div>
+        <div style={{fontSize:14,fontWeight:500}}>{chat.name}</div>
+        <div style={{fontSize:12,color:C.gray}}>{chat.phone}</div>
+      </div>
+      <div style={{textAlign:"center",padding:"6px 0 2px",flexShrink:0}}><div style={{fontSize:12,color:C.gray}}>iMessage</div></div>
+      <div style={{flex:1,overflowY:"auto",padding:"0 10px",WebkitOverflowScrolling:"touch"}}>
+        {(!chat.messages||chat.messages.length===0)&&<div style={{textAlign:"center",padding:"30px 20px",color:C.g3,fontSize:14}}>No messages yet</div>}
+        {(chat.messages||[]).map((m,i)=>{
+          const prev=chat.messages[i-1];
+          const next=chat.messages[i+1];
+          const showDate=!prev||(new Date(m.time)-new Date(prev.time))>3600000;
+          const isLast=m.dir==="out"&&(!next||next.dir!==m.dir);
+          if(m.type==="transcript")return(
+            <div key={m.id} style={{margin:"16px 0"}}>
+              <div style={{textAlign:"center",fontSize:11,color:C.g3,marginBottom:8}}>{fmtDate(m.time)}</div>
+              <div style={{textAlign:"center",marginBottom:8}}>
+                <div style={{display:"inline-flex",alignItems:"center",gap:6,background:C.g6,border:"0.5px solid "+C.sep,borderRadius:12,padding:"6px 14px"}}>
+                  <span style={{color:C.green,fontSize:14}}>📞</span>
+                  <span style={{fontSize:13,color:C.gray}}>Phone call · {m.duration}</span>
+                </div>
+              </div>
+              <div style={{margin:"0 16px",background:C.g6,border:"0.5px solid "+C.sep,borderRadius:16,overflow:"hidden"}}>
+                <button onClick={()=>setExpTx(expTx===m.id?null:m.id)} style={{width:"100%",padding:"12px 16px",background:"none",border:"none",borderBottom:expTx===m.id?"0.5px solid "+C.sep:"none",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:14,color:C.gray}}>📝</span>
+                    <span style={{fontSize:14,fontWeight:500,color:C.w}}>Call Transcript</span>
+                  </div>
+                  <span style={{fontSize:14,color:C.g3,transform:expTx===m.id?"rotate(90deg)":"none",transition:"transform .2s"}}>›</span>
+                </button>
+                {expTx===m.id&&(
+                  <div style={{padding:"4px 16px 14px",maxHeight:400,overflowY:"auto"}}>
+                    {m.transcript.map((t,j)=>(
+                      <div key={j} style={{marginTop:10}}>
+                        <div style={{fontSize:12,fontWeight:600,color:t.speaker==="Kyle"?C.blue:C.green,marginBottom:2}}>{t.speaker}</div>
+                        <div style={{fontSize:14,color:"#D1D1D6",lineHeight:1.4}}>{t.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+          return(
+            <div key={m.id}>
+              {showDate&&<div style={{textAlign:"center",fontSize:11,color:C.g3,margin:"16px 0 6px"}}>{fmtDate(m.time)}</div>}
+              <div style={{display:"flex",justifyContent:m.dir==="out"?"flex-end":"flex-start",marginTop:prev&&prev.dir===m.dir&&!showDate?1:4,padding:"0 4px"}}>
+                <div style={{maxWidth:"72%",padding:"8px 12px",fontSize:16.5,lineHeight:1.35,background:m.dir==="out"?C.blue:C.g5,color:C.w,borderRadius:18,borderBottomRightRadius:m.dir==="out"?4:18,borderBottomLeftRadius:m.dir==="in"?4:18,wordBreak:"break-word",whiteSpace:"pre-wrap"}}>{m.text}</div>
+              </div>
+              {isLast&&<div style={{textAlign:"right",fontSize:11,color:C.g3,padding:"2px 8px 0"}}>Delivered</div>}
+            </div>
+          );
+        })}
+        <div ref={endRef} style={{height:8}}/>
+      </div>
+      {qrOpen&&<div style={{padding:"6px 8px",borderTop:"0.5px solid "+C.sep,display:"flex",flexWrap:"wrap",gap:5,background:C.g6,flexShrink:0}}>
+        {QR.map((t,i)=><button key={i} onClick={()=>{setMsg(t);setQrOpen(false);inRef.current?.focus()}} style={{background:C.g5,border:"none",borderRadius:16,color:"#D1D1D6",padding:"7px 12px",fontSize:14,cursor:"pointer"}}>{t}</button>)}
+      </div>}
+      <div style={{padding:"6px 8px",paddingBottom:"max(28px,env(safe-area-inset-bottom))",display:"flex",gap:6,alignItems:"flex-end",background:C.g6,borderTop:"0.5px solid "+C.sep,flexShrink:0}}>
+        <button onClick={()=>setQrOpen(!qrOpen)} style={{background:"none",border:"none",color:qrOpen?C.blue:C.gray,fontSize:24,cursor:"pointer",padding:"4px",flexShrink:0,lineHeight:1}}>⚡</button>
+        <div style={{flex:1,background:C.g5,borderRadius:20,display:"flex",alignItems:"flex-end",padding:"0 4px 0 14px",minHeight:36,border:"0.5px solid "+C.sep}}>
+          <input ref={inRef} value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doSend()} placeholder="iMessage" style={{flex:1,background:"transparent",border:"none",color:C.w,fontSize:16.5,outline:"none",padding:"8px 0"}}/>
+        </div>
+        <button onClick={doSend} disabled={!msg.trim()||sending} style={{width:32,height:32,borderRadius:16,flexShrink:0,border:"none",cursor:msg.trim()?"pointer":"default",background:msg.trim()?C.blue:C.g4,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 12V2M7 2L3 6M7 2L11 6" stroke="#FFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+  );
+
+  // ===== COMPOSE =====
+  if(compose){
+    const toFilt=contacts.filter(c=>c.name.toLowerCase().includes(toQ.toLowerCase())||c.phone.includes(toQ));
+    return(
+      <div style={{position:"fixed",inset:0,background:C.bg,color:C.w,display:"flex",flexDirection:"column",zIndex:100}}>
+        <div style={{padding:"6px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"0.5px solid "+C.sep,minHeight:44}}>
+          <button onClick={()=>setCompose(false)} style={{background:"none",border:"none",color:C.blue,fontSize:17,cursor:"pointer"}}>Cancel</button>
+          <div style={{fontSize:17,fontWeight:600}}>New Message</div>
+          <div style={{width:50}}/>
+        </div>
+        <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.sep,display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:15,color:C.gray}}>To:</span>
+          <input value={toQ} onChange={e=>setToQ(e.target.value)} autoFocus placeholder="Name or phone" style={{flex:1,background:"transparent",border:"none",color:C.blue,fontSize:16,outline:"none"}}/>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {toFilt.map(c=>(
+            <div key={c.id} onClick={()=>{openChat(c);setToQ("")}} style={{display:"flex",alignItems:"center",padding:"10px 16px",borderBottom:"0.5px solid "+C.g6,gap:10,cursor:"pointer"}}>
+              <div style={{width:36,height:36,borderRadius:18,background:SC[c.status]||C.g2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:600,color:C.w}}>{ini(c.name)}</div>
+              <div><div style={{fontSize:15,color:C.blue}}>{c.name}</div><div style={{fontSize:13,color:C.gray}}>{c.phone}</div></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ===== MAIN =====
+  return(
+    <div style={{position:"fixed",inset:0,background:C.bg,color:C.w,display:"flex",flexDirection:"column"}}>
+      {tab!=="keypad"&&(
+        <div style={{padding:"8px 16px 0",flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <button onClick={()=>setModal("settings")} style={{background:"none",border:"none",color:C.blue,fontSize:16,cursor:"pointer",padding:0}}>{tab==="contacts"?"Settings":"Edit"}</button>
+            <div style={{display:"flex",gap:16}}>
+              {tab==="contacts"&&<button onClick={()=>setModal("import")} style={{background:"none",border:"none",color:C.blue,fontSize:16,cursor:"pointer",padding:0}}>Import</button>}
+              <button onClick={()=>tab==="messages"?setCompose(true):setModal("add")} style={{background:"none",border:"none",color:C.blue,cursor:"pointer",padding:0}}>
+                {tab==="messages"?<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="1" y="3" width="20" height="14" rx="3" stroke={C.blue} strokeWidth="1.4"/><path d="M7 17L5 20V17" stroke={C.blue} strokeWidth="1.4" strokeLinejoin="round"/><path d="M6 9H16M6 12H11" stroke={C.blue} strokeWidth="1.4" strokeLinecap="round"/></svg>:<span style={{fontSize:22}}>+</span>}
+              </button>
+            </div>
+          </div>
+          <h1 style={{fontSize:34,fontWeight:700,margin:"0 0 6px",letterSpacing:-.5}}>{tab==="messages"?"Messages":tab==="recents"?"Recents":"Contacts"}</h1>
+          <div style={{background:C.g6,borderRadius:10,padding:"7px 10px",display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke={C.gray} strokeWidth="1.2"/><path d="M10 10L14 14" stroke={C.gray} strokeWidth="1.2" strokeLinecap="round"/></svg>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search" style={{flex:1,background:"transparent",border:"none",color:C.w,fontSize:16,outline:"none"}}/>
+            {q&&<button onClick={()=>setQ("")} style={{background:C.g3,border:"none",borderRadius:8,width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9,color:C.g6,fontWeight:700,padding:0}}>✕</button>}
+          </div>
+        </div>
+      )}
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+        {tab==="messages"&&<div style={{paddingBottom:90}}>
+          {convos.length===0&&<div style={{textAlign:"center",padding:"60px 30px",color:C.g3}}><div style={{fontSize:17,color:C.gray}}>No Messages</div></div>}
+          {convos.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())||c.phone.includes(q)).map(c=>{const last=c.messages[c.messages.length-1];const preview=last.type==="transcript"?"📞 Phone call · "+last.duration:last.text;return(
+            <div key={c.id} onClick={()=>openChat(c)} style={{display:"flex",alignItems:"center",padding:"10px 16px",borderBottom:"0.5px solid "+C.g6,gap:12,cursor:"pointer"}}>
+              <div style={{width:48,height:48,borderRadius:24,flexShrink:0,background:SC[c.status]||C.g2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:500,color:C.w}}>{ini(c.name)}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                  <div style={{fontSize:16.5,fontWeight:600}}>{c.name}</div>
+                  <div style={{fontSize:15,color:C.gray,flexShrink:0}}>{fmt(last.time)} <span style={{color:C.g3}}>›</span></div>
+                </div>
+                <div style={{fontSize:14.5,color:C.gray,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{preview}</div>
+              </div>
+            </div>
+          )})}
+        </div>}
+        {tab==="contacts"&&<div style={{paddingBottom:90}}>
+          {contacts.length===0&&<div style={{textAlign:"center",padding:"60px 30px",color:C.g3}}><div style={{fontSize:17,color:C.gray}}>No Contacts</div></div>}
+          {Object.keys(grp).sort().map(letter=><div key={letter}>
+            <div style={{padding:"4px 16px",background:C.g6,fontSize:14,fontWeight:600,color:C.gray,position:"sticky",top:0,zIndex:5}}>{letter}</div>
+            {grp[letter].map(c=><div key={c.id} style={{display:"flex",alignItems:"center",padding:"10px 16px",borderBottom:"0.5px solid "+C.g6,gap:12,position:"relative"}}>
+              <div style={{width:40,height:40,borderRadius:20,flexShrink:0,background:SC[c.status]||C.g2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:600,color:C.w}}>{ini(c.name)}</div>
+              <div style={{flex:1,cursor:"pointer"}} onClick={()=>openChat(c)}><div style={{fontSize:16.5}}>{c.name}</div><div style={{fontSize:13,color:C.gray,marginTop:1}}>{c.city||c.phone}</div></div>
+              <div style={{display:"flex",gap:14,flexShrink:0}}>
+                <button onClick={()=>openChat(c)} style={{background:"none",border:"none",color:C.blue,fontSize:18,cursor:"pointer",padding:2}}>💬</button>
+                <button onClick={()=>doCall(c)} style={{background:"none",border:"none",color:C.green,fontSize:18,cursor:"pointer",padding:2}}>📞</button>
+              </div>
+            </div>)}
+          </div>)}
+        </div>}
+        {tab==="recents"&&<div style={{paddingBottom:90}}>
+          {log.length===0&&<div style={{textAlign:"center",padding:"60px 30px",color:C.g3}}><div style={{fontSize:17,color:C.gray}}>No Recents</div></div>}
+          {log.filter(e=>e.name.toLowerCase().includes(q.toLowerCase())||e.phone.includes(q)).map(e=><div key={e.id} style={{display:"flex",alignItems:"center",padding:"10px 16px",borderBottom:"0.5px solid "+C.g6,gap:12}}>
+            <div style={{flex:1}}><div style={{fontSize:16.5}}>{e.name}</div><div style={{fontSize:13,color:C.gray,marginTop:1}}>↗ phone</div></div>
+            <div style={{fontSize:15,color:C.gray}}>{fmt(e.time)}</div>
+            <button style={{background:"none",border:"none",color:C.blue,fontSize:16,cursor:"pointer"}}>ⓘ</button>
+          </div>)}
+        </div>}
+        {tab==="keypad"&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",paddingTop:40,paddingBottom:90}}>
+          <div style={{fontSize:dial.length>12?26:dial.length>8?30:34,fontWeight:300,letterSpacing:1.5,minHeight:44,color:C.w,textAlign:"center"}}>{dial}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,78px)",gap:14,marginTop:28}}>
+            {[{n:"1",l:""},{n:"2",l:"A B C"},{n:"3",l:"D E F"},{n:"4",l:"G H I"},{n:"5",l:"J K L"},{n:"6",l:"M N O"},{n:"7",l:"P Q R S"},{n:"8",l:"T U V"},{n:"9",l:"W X Y Z"},{n:"✱",l:""},{n:"0",l:"+"},{n:"#",l:""}].map(k=>
+              <button key={k.n} onClick={()=>setDial(d=>d+(k.n==="✱"?"*":k.n))} style={{width:78,height:78,borderRadius:39,background:"rgba(255,255,255,.12)",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                <span style={{fontSize:31,fontWeight:300,color:C.w,lineHeight:1}}>{k.n}</span>
+                {k.l&&<span style={{fontSize:9,fontWeight:600,color:C.w,letterSpacing:2.5,marginTop:3}}>{k.l}</span>}
+              </button>
+            )}
+          </div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:50,marginTop:28}}>
+            <div style={{width:60}}/>
+            <button onClick={()=>{if(!dial)return;const ex=contacts.find(c=>c.phone.replace(/\D/g,"").includes(dial.replace(/\D/g,"")));doCall(ex||{id:"tmp",name:dial,phone:dial,city:"",status:"new",messages:[]})}} style={{width:72,height:72,borderRadius:36,background:C.green,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,opacity:dial?1:.3}}>📞</button>
+            <button onClick={()=>setDial(d=>d.slice(0,-1))} style={{width:60,height:40,background:"none",border:"none",cursor:"pointer",opacity:dial?1:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width="24" height="16" viewBox="0 0 24 16" fill="none"><path d="M8 0L0 8L8 16H23V0H8Z" stroke="#FFF" strokeWidth="1.2" fill="none"/><path d="M12 5L18 11M18 5L12 11" stroke="#FFF" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+        </div>}
+      </div>
+      {/* TAB BAR */}
+      <div style={{flexShrink:0,background:"rgba(28,28,30,.92)",backdropFilter:"blur(20px)",borderTop:"0.5px solid "+C.sep,display:"flex",padding:"4px 0",paddingBottom:"max(20px,env(safe-area-inset-bottom))"}}>
+        {[
+          {k:"recents",l:"Recents",i:a=><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9.5" stroke={a?C.blue:C.gray} strokeWidth="1.3"/><path d="M11 6V11L14 13" stroke={a?C.blue:C.gray} strokeWidth="1.3" strokeLinecap="round"/></svg>},
+          {k:"contacts",l:"Contacts",i:a=><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="8" r="4" stroke={a?C.blue:C.gray} strokeWidth="1.3"/><path d="M4 19C4 15.5 7 13.5 11 13.5C15 13.5 18 15.5 18 19" stroke={a?C.blue:C.gray} strokeWidth="1.3" strokeLinecap="round"/></svg>},
+          {k:"keypad",l:"Keypad",i:a=><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="5" cy="4" r="2" fill={a?C.blue:C.gray}/><circle cx="11" cy="4" r="2" fill={a?C.blue:C.gray}/><circle cx="17" cy="4" r="2" fill={a?C.blue:C.gray}/><circle cx="5" cy="11" r="2" fill={a?C.blue:C.gray}/><circle cx="11" cy="11" r="2" fill={a?C.blue:C.gray}/><circle cx="17" cy="11" r="2" fill={a?C.blue:C.gray}/><circle cx="5" cy="18" r="2" fill={a?C.blue:C.gray}/><circle cx="11" cy="18" r="2" fill={a?C.blue:C.gray}/><circle cx="17" cy="18" r="2" fill={a?C.blue:C.gray}/></svg>},
+          {k:"messages",l:"Messages",i:a=><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="1" y="3" width="20" height="14" rx="3" stroke={a?C.blue:C.gray} strokeWidth="1.3"/><path d="M7 17L5 20V17" stroke={a?C.blue:C.gray} strokeWidth="1.3"/><path d="M6 9H16M6 12H11" stroke={a?C.blue:C.gray} strokeWidth="1.3" strokeLinecap="round"/></svg>},
+        ].map(t=><button key={t.k} onClick={()=>setTab(t.k)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 0"}}>
+          {t.i(tab===t.k)}<span style={{fontSize:10,color:tab===t.k?C.blue:C.gray}}>{t.l}</span>
+        </button>)}
+      </div>
+      {/* MODALS */}
+      {modal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setModal(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:C.g6,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:400,padding:"20px 20px 36px",maxHeight:"85vh",overflowY:"auto"}}>
+          <div style={{width:36,height:5,borderRadius:3,background:C.g3,margin:"0 auto 16px"}}/>
+          {modal==="settings"&&<><div style={{fontSize:20,fontWeight:700,marginBottom:16}}>Settings</div>
+            {[{k:"callWH",l:"Call Webhook",ph:"https://hook.us2.make.com/..."},{k:"smsWH",l:"Text Webhook",ph:"https://hook.us2.make.com/..."},{k:"phone",l:"iPhone Number",ph:"+12135551234"}].map(f=><div key={f.k} style={{marginBottom:12}}>
+              <label style={{fontSize:13,color:C.gray,display:"block",marginBottom:4}}>{f.l}</label>
+              <input value={s[f.k]} onChange={e=>setS({...s,[f.k]:e.target.value})} placeholder={f.ph} style={{width:"100%",padding:"12px 14px",background:C.g5,border:"none",borderRadius:10,color:C.w,fontSize:16,outline:"none",boxSizing:"border-box"}}/>
+            </div>)}
+            <div style={{display:"flex",gap:10,marginTop:12}}>
+              <button onClick={()=>setModal(null)} style={{flex:1,padding:14,background:C.g5,border:"none",borderRadius:12,color:C.gray,fontSize:16,cursor:"pointer"}}>Cancel</button>
+              <button onClick={()=>{const ns={...s,ok:true};setS(ns);setModal(null);save(ns)}} style={{flex:1,padding:14,background:C.blue,border:"none",borderRadius:12,color:C.w,fontSize:16,fontWeight:600,cursor:"pointer"}}>Done</button>
+            </div>
+          </>}
+          {modal==="add"&&<><div style={{fontSize:20,fontWeight:700,marginBottom:16}}>New Contact</div>
+            {[{k:"name",ph:"Name"},{k:"phone",ph:"Phone"},{k:"city",ph:"City"},{k:"src",ph:"Source"}].map(f=><input key={f.k} value={nc[f.k]} onChange={e=>setNc({...nc,[f.k]:e.target.value})} placeholder={f.ph} style={{width:"100%",padding:"12px 14px",background:C.g5,border:"none",borderRadius:10,color:C.w,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:8}}/>)}
+            <div style={{display:"flex",gap:10,marginTop:8}}>
+              <button onClick={()=>setModal(null)} style={{flex:1,padding:14,background:C.g5,border:"none",borderRadius:12,color:C.gray,fontSize:16,cursor:"pointer"}}>Cancel</button>
+              <button onClick={addC} style={{flex:1,padding:14,background:C.green,border:"none",borderRadius:12,color:C.w,fontSize:16,fontWeight:600,cursor:"pointer"}}>Done</button>
+            </div>
+          </>}
+          {modal==="import"&&<><div style={{fontSize:20,fontWeight:700,marginBottom:4}}>Import</div>
+            <div style={{fontSize:13,color:C.gray,marginBottom:10}}>Name, Phone, City, Source — one per line</div>
+            <textarea value={impTxt} onChange={e=>setImpTxt(e.target.value)} placeholder="Dolores Padilla, +19493030769, LA, SMS" rows={6} style={{width:"100%",padding:"12px",background:C.g5,border:"none",borderRadius:10,color:C.w,fontSize:14,outline:"none",resize:"none",fontFamily:"monospace",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:10,marginTop:10}}>
+              <button onClick={()=>setModal(null)} style={{flex:1,padding:14,background:C.g5,border:"none",borderRadius:12,color:C.gray,fontSize:16,cursor:"pointer"}}>Cancel</button>
+              <button onClick={doImport} style={{flex:1,padding:14,background:C.blue,border:"none",borderRadius:12,color:C.w,fontSize:16,fontWeight:600,cursor:"pointer"}}>Import</button>
+            </div>
+          </>}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
